@@ -31,15 +31,14 @@
 #include "packet_type_enums.h"
 #include "module_state_enums.h"
 
-ModuleState currentState = LISTENING;
-volatile bool receivedFlag = false;
-
 SX1278 radio = new Module(RADIO_CS_PIN, RADIO_DI0_PIN, RADIO_RST_PIN, RADIO_BUSY_PIN);
 
 PacketType currentPacketType = NO_OP;
+ModuleState currentState = LISTENING;
+volatile bool receivedFlag = false;
+volatile bool enableInterrupt = true;
 
 uint16_t newDownlinkPeriod;
-volatile bool enableInterrupt = true;
 
 unsigned long transmittingStartTime = 0;
 unsigned long currentTime = 0;
@@ -210,14 +209,11 @@ void handleReceive()
   byte byteArr[15];
   int state = radio.readData(byteArr, 15);
 
+  Serial.println("Downlinked Report:");
   int i;
-  char hexCar[2];
   for (i = 0; i < sizeof(byteArr); i++)
   {
-    if (i == (sizeof(byteArr) - 1))
-    {
-      sprintf(hexCar, "%02X", byteArr[i]);
-    }
+    Serial.println(byteArr[i]);
   }
 
   Serial.println("");
@@ -225,24 +221,33 @@ void handleReceive()
   // packet was successfully received
   if (state == RADIOLIB_ERR_NONE)
   {
-    if (byteArr[15] == 3) // 3 is listen radio mode
+    Serial.println(F("[SX1278] Received packet!"));
+    if (byteArr[14] == 1) // checks if the chipSat is in listen mode
     {
       currentState = TRANSMITTING;
       transmittingStartTime = millis();
     }
     else
     {
+      Serial.print(F("[SX1278] Going back to listening ... "));
       enableInterrupt = true;
+      state = radio.startReceive();
+      if (state == RADIOLIB_ERR_NONE)
+      {
+        Serial.println(F("Listening again."));
+      }
+      else
+      {
+        Serial.print(F("Failed to go back to listening, code "));
+        Serial.println(state);
+      }
     }
-    Serial.println(F("[SX1278] Received packet!"));
 #ifdef HAS_DISPLAY
     if (u8g2)
     {
       u8g2->clearBuffer();
       char buf[256];
       u8g2->drawStr(0, 12, "Received OK!");
-      snprintf(buf, sizeof(buf), "ID: %s", hexCar); //
-      u8g2->drawStr(25, 30, buf);                   // str.c_str()
       snprintf(buf, sizeof(buf), "RSSI: %.2f", radio.getRSSI());
       u8g2->drawStr(0, 45, buf);
       snprintf(buf, sizeof(buf), "SNR: %.2f", radio.getSNR());
@@ -272,7 +277,6 @@ void readSerial()
   while (Serial.available() > 0)
   {
     char c = Serial.read(); // Read the next character
-
     if (c == '\n')
     {
       // Newline character received, process the command
@@ -311,21 +315,21 @@ void readSerial()
 
 void sendResponse()
 {
-  byte packet[3];
-  if (currentPacketType == NO_OP)
+  byte packet[3] = {0x00, 0x00, 0x00};
+
+  switch (currentPacketType)
   {
-    packet[1] = 0x00;
-    radio.transmit(packet, 3);
-  }
-  else if (currentPacketType == CHANGE_DOWNLINK_PERIOD)
-  {
-    packet[1] = 0x11;
-    packet[2] = newDownlinkPeriod >> 8;
-    packet[3] = newDownlinkPeriod & 0xFF;
-    radio.transmit(packet, 3);
-  }
-  else
-  {
+  case NO_OP:
+    break;
+  case CHANGE_DOWNLINK_PERIOD:
+    packet[0] = 0x11;
+    packet[1] = (byte)(newDownlinkPeriod >> 8);
+    packet[2] = (byte)(newDownlinkPeriod & 0xFF);
+    break;
+  default:
     Serial.println("Unknown command. Check serial input.");
+    break;
   }
+
+  radio.transmit(packet, 3);
 }
