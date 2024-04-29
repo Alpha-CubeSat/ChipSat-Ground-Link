@@ -11,4 +11,5 @@ const int PWR = 20;
 const int PL = 8;
 const int GN = 0;
 
+const int LISTEN_PERIOD = 30000;
 #endif

@@ -35,6 +35,7 @@ SX1278 radio = new Module(RADIO_CS_PIN, RADIO_DI0_PIN, RADIO_RST_PIN, RADIO_BUSY
 
 PacketType currentPacketType = NO_OP;
 ModuleState currentState = LISTENING;
+
 volatile bool receivedFlag = false;
 volatile bool enableInterrupt = true;
 
@@ -68,7 +69,6 @@ void loop()
 
 void initSX1278()
 {
-  // initialize SX1278 with specified settings
   Serial.print(F("[SX1278] Initializing ... "));
   int state = radio.begin(FREQ, BW, SF, CR, SW, PWR, PL, GN);
 
@@ -189,7 +189,7 @@ void setFlag(void)
 void handleTransmit()
 {
   currentTime = millis();
-  if (currentTime - transmittingStartTime > 30000)
+  if (currentTime - transmittingStartTime > LISTEN_PERIOD)
   {
     radio.startReceive();
     currentState = LISTENING;
@@ -222,7 +222,7 @@ void handleReceive()
   if (state == RADIOLIB_ERR_NONE)
   {
     Serial.println(F("[SX1278] Received packet!"));
-    if (byteArr[14] == 1) // checks if the chipSat is in listen mode
+    if (byteArr[17] << 5 == 1) // checks if the chipSat is in listen mode
     {
       currentState = TRANSMITTING;
       transmittingStartTime = millis();
@@ -258,12 +258,10 @@ void handleReceive()
   }
   else if (state == RADIOLIB_ERR_CRC_MISMATCH)
   {
-    // packet was received, but is malformed
     Serial.println(F("[SX1278] CRC error!"));
   }
   else
   {
-    // some other error occurred
     Serial.print(F("[SX1278] Failed, code "));
     Serial.println(state);
   }
@@ -271,18 +269,15 @@ void handleReceive()
 
 void readSerial()
 {
-  static String inputBuffer = ""; // Buffer to hold the input string from serial
+  static String inputBuffer = "";
 
-  // Check if there's data to read
   while (Serial.available() > 0)
   {
-    char c = Serial.read(); // Read the next character
+    char c = Serial.read();
     if (c == '\n')
     {
-      // Newline character received, process the command
       if (inputBuffer.length() > 0)
       {
-        // Check the first character to determine the command
         char command = inputBuffer.charAt(0);
 
         if (command == 'N')
